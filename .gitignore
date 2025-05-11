@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# CMake build dir
+build/
+
+# CMake local user presets
+CMakeUserPresets.json
