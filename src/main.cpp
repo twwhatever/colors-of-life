@@ -34,6 +34,39 @@ void initialize_grid(Grid& grid) {
   grid[x][y] = dist(rng) == 1;
 }
 
+std::vector<Entity> spawn_entities(int width, int height, int count_per_team) {
+  std::vector<Entity> entities;
+  std::unordered_map<Vec2, bool> occupied;
+
+  std::mt19937 rng(std::random_device{}());
+  std::uniform_int_distribution<int> y_dist(0, height - 1);
+
+  auto unique_random_pos = [&](int x_min, int x_max) {
+    std::uniform_int_distribution<int> x_dist(x_min, x_max);
+    while (true) {
+      Vec2 pos{x_dist(rng), y_dist(rng)};
+      const auto& [_, inserted] = occupied.emplace(std::pair{pos, false});
+      if (inserted) {
+        return pos;
+      }
+    }
+  };
+
+  // Team A - Red - Left half
+  for (int i = 0; i < count_per_team; ++i) {
+    Vec2 pos = unique_random_pos(0, width / 2 - 1);
+    entities.emplace_back(pos, sf::Color::Red, 10);
+  }
+
+  // Team B - Blue - Right half
+  for (int i = 0; i < count_per_team; ++i) {
+    Vec2 pos = unique_random_pos(width / 2, width - 1);
+    entities.emplace_back(pos, sf::Color::Blue, 10);
+  }
+
+  return entities;
+}
+
 // Count alive neighbors for Game of Life
 int count_neighbors(const Grid& grid, int x, int y) {
   int count = 0;
@@ -158,11 +191,8 @@ int main() {
   Grid food_grid(GRID_WIDTH, std::vector<bool>(GRID_HEIGHT, false));
   initialize_grid(food_grid);
   
-  std::vector<Entity> entities = {
-    {{10, 10}, sf::Color::Red, 10},
-    {{20, 20}, sf::Color::Blue, 10}
-  };
-  
+  std::vector<Entity> entities = spawn_entities(GRID_WIDTH, GRID_HEIGHT, 50);
+
   sf::RectangleShape cell(sf::Vector2f(CELL_SIZE - 1, CELL_SIZE - 1));
   cell.setFillColor(sf::Color::Green);
   
@@ -181,7 +211,7 @@ int main() {
   } 
 
   sf::Clock update_timer;
-  const float update_interval = 0.5f; // seconds
+  const float update_interval = 0.01f; // seconds
   
   while (window.isOpen()) {
     sf::Event event;
