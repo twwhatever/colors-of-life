@@ -5,6 +5,8 @@
 #include <ruby.h>
 #include <iostream>
 
+#include "Entity.h"
+
 constexpr int GRID_WIDTH = 64;
 constexpr int GRID_HEIGHT = 64;
 constexpr int CELL_SIZE = 10;
@@ -13,11 +15,15 @@ constexpr int WINDOW_HEIGHT = GRID_HEIGHT * CELL_SIZE;
 
 using Grid = std::vector<std::vector<bool>>;
 
-struct Entity {
-  int x, y;
-  sf::Color color;
-  int energy;
-};
+bool in_bounds(Vec2 v) {
+  if (v.x < 0 || v.x >= GRID_WIDTH) {
+    return false;
+  }
+  if (v.y < 0 || v.y >= GRID_HEIGHT) {
+    return false;
+  }
+  return true;
+}
 
 // Randomly fill initial grid
 void initialize_grid(Grid& grid) {
@@ -95,34 +101,52 @@ void update_grid(Grid& grid) {
 
 // Apply entity movement(
 void update_entities(std::vector<Entity>& entities, Grid& food_grid) {
+  // What moves do entities want to make?
+  std::map<Vec2, std::vector<Entity*>> movement_requests;
   for (auto& entity : entities) {
+    if (entity.energy <= 0) {
+      // Entity cannot move due to low energy.  Generate a
+      // request to "stay" so that other entities won't be
+      // able to move to this square.
+      movement_requests[entity.pos].emplace_back(&entity);
+      continue;
+    }
     // 5x5 local grid centered on entity
     std::vector<std::vector<bool>> local(5, std::vector<bool>(5, false));
     for (int dx = -2; dx <= 2; ++dx) {
       for (int dy = -2; dy <= 2; ++dy) {
-        int gx = entity.x + dx;
-        int gy = entity.y + dy;
+        int gx = entity.pos.x + dx;
+        int gy = entity.pos.y + dy;
         if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT)
         local[dx + 2][dy + 2] = food_grid[gx][gy];
       }
     }
-    
-    VALUE action = call_decide_action(local, entity.energy);
-    VALUE rb_str = rb_sym2str(action);
-    std::string direction = StringValueCStr(rb_str);
-    
-    int dx = 0, dy = 0;
-    if (direction == "north") dy = -1;
-    if (direction == "south") dy = 1;
-    if (direction == "west") dx = -1;
-    if (direction == "east") dx = 1;
-    
-    int new_x = entity.x + dx;
-    int new_y = entity.y + dy;
-    
-    if (new_x >= 0 && new_x < GRID_WIDTH && new_y >= 0 && new_y < GRID_HEIGHT) {
-      entity.x = new_x;
-      entity.y = new_y;
+
+    const auto movement_request = entity.request_move(local);
+    if (!in_bounds(movement_request)) {
+      // Illegal move, reinterpret as "stay".
+      movement_requests[entity.pos].emplace_back(&entity);
+      continue; 
+    }
+    movement_requests[movement_request].emplace_back(&entity);
+  }
+
+  // Resolve movement.
+  for (auto& [target, movers] : movement_requests) {
+    if (movers.size() == 1) {
+      movers.front()->update_position(target);
+    }
+    // Ignore movement requests for squares multiple
+    // entities are trying to move to.
+  }
+}
+
+void eat(std::vector<Entity>& entities, Grid& food_grid) {
+  for (auto& entity : entities) {
+    const auto& pos = entity.pos;
+    if (food_grid[pos.x][pos.y]) {
+      entity.energy += 5;  // TODO: tune this.
+      food_grid[pos.x][pos.y] = 0;
     }
   }
 }
@@ -135,8 +159,8 @@ int main() {
   initialize_grid(food_grid);
   
   std::vector<Entity> entities = {
-    {10, 10, sf::Color::Red, 10},
-    {20, 20, sf::Color::Blue, 10}
+    {{10, 10}, sf::Color::Red, 10},
+    {{20, 20}, sf::Color::Blue, 10}
   };
   
   sf::RectangleShape cell(sf::Vector2f(CELL_SIZE - 1, CELL_SIZE - 1));
@@ -167,6 +191,7 @@ int main() {
     
     if (update_timer.getElapsedTime().asSeconds() > update_interval) {
       update_entities(entities, food_grid);
+      eat(entities, food_grid);
       update_grid(food_grid);
       update_timer.restart();
     }
@@ -177,7 +202,7 @@ int main() {
         if (food_grid[x][y]) {
           bool has_entity = false;
           for (const auto& e : entities)
-          if (e.x == x && e.y == y)
+          if (e.pos.x == x && e.pos.y == y)
           has_entity = true;
           if (!has_entity) {
             cell.setPosition(x * CELL_SIZE, y * CELL_SIZE);
@@ -190,7 +215,7 @@ int main() {
     for (const auto& entity : entities) {
       sf::RectangleShape square(sf::Vector2f(CELL_SIZE - 1, CELL_SIZE - 1));
       square.setFillColor(entity.color);
-      square.setPosition(entity.x * CELL_SIZE, entity.y * CELL_SIZE);
+      square.setPosition(entity.pos.x * CELL_SIZE, entity.pos.y * CELL_SIZE);
       window.draw(square);
     }
     

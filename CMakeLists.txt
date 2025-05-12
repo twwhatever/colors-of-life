@@ -42,7 +42,11 @@ message(STATUS "Ruby lib path: ${RUBY_LIBRARY_DIR}")
 include_directories(${RUBY_INCLUDE_DIR} ${RUBY_ARCH_INCLUDE_DIR})
 link_directories(${RUBY_LIBRARY_DIR})
 
-add_executable(ruby_life src/main.cpp)
+add_executable(ruby_life
+    src/main.cpp
+    src/entity.cpp
+    src/vec2.cpp
+)
 
 set_target_properties(ruby_life PROPERTIES
     INSTALL_RPATH "/opt/homebrew/opt/ruby/lib"
