@@ -22,10 +22,12 @@ Vec2 Entity::request_move(const std::vector<std::vector<bool>>& local_grid) {
 
   // Convert local_grid to Ruby VALUE
   VALUE rb_local = rb_ary_new();
+  rb_gc_register_address(&rb_local);
   for (const auto& row : local_grid) {
     VALUE rb_row = rb_ary_new();
-    for (bool cell : row)
-      rb_ary_push(rb_row, cell ? Qtrue : Qfalse);
+    for (bool cell : row) {
+        rb_ary_push(rb_row, cell ? Qtrue : Qfalse);
+    }
     rb_ary_push(rb_local, rb_row);
   }
 
@@ -39,7 +41,7 @@ Vec2 Entity::request_move(const std::vector<std::vector<bool>>& local_grid) {
 
   int state = 0;
   VALUE result = rb_protect(safe_call, reinterpret_cast<VALUE>(argv), &state);
-
+  rb_gc_unregister_address(&rb_local);
   if (state != 0) {
     VALUE err = rb_errinfo();
     VALUE msg = rb_funcall(err, rb_intern("to_s"), 0);

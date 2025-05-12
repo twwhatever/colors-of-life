@@ -59,3 +59,12 @@ target_link_libraries(ruby_life
     sfml-system
     ${RUBY_LIB}
 )
+
+add_executable(gc_registration_crash tests/gc_registration_crash.cpp)
+target_include_directories(gc_registration_crash PRIVATE ${RUBY_INCLUDE_DIR})
+target_link_libraries(gc_registration_crash PRIVATE ${RUBY_LIB})
+
+add_executable(gc_registration_fixed tests/gc_registration_crash.cpp)
+target_compile_definitions(gc_registration_fixed PRIVATE PROTECT_ARRAY)
+target_include_directories(gc_registration_fixed PRIVATE ${RUBY_INCLUDE_DIR})
+target_link_libraries(gc_registration_fixed PRIVATE ${RUBY_LIB})
