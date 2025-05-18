@@ -14,10 +14,20 @@ static Vec2 direction_from_symbol(VALUE sym) {
   return {0, 0};  // stay
 }
 
+// Helper: Convert celltype to Ruby symbol
+static VALUE cell_type_to_symbol(CellType t) {
+  switch (t) {
+    case CellType::Food:     return ID2SYM(rb_intern("food"));
+    case CellType::Teammate: return ID2SYM(rb_intern("teammate"));
+    case CellType::Opponent: return ID2SYM(rb_intern("opponent"));
+    default:                 return ID2SYM(rb_intern("empty"));
+  }
+}
+
 Entity::Entity(Vec2 position, const sf::Color color, int initial_energy)
     : pos(position), color(color), energy(initial_energy) {}
 
-Vec2 Entity::request_move(const std::vector<std::vector<bool>>& local_grid) {
+Vec2 Entity::request_move(const Grid& local_grid) {
   if (energy <= 0) return pos;
 
   // Convert local_grid to Ruby VALUE
@@ -25,8 +35,9 @@ Vec2 Entity::request_move(const std::vector<std::vector<bool>>& local_grid) {
   rb_gc_register_address(&rb_local);
   for (const auto& row : local_grid) {
     VALUE rb_row = rb_ary_new();
-    for (bool cell : row) {
-        rb_ary_push(rb_row, cell ? Qtrue : Qfalse);
+    for (auto cell : row) {
+      VALUE ruby_cell_type = cell_type_to_symbol(cell);
+        rb_ary_push(rb_row, ruby_cell_type);
     }
     rb_ary_push(rb_local, rb_row);
   }

@@ -6,14 +6,14 @@
 #include <iostream>
 
 #include "Entity.h"
+#include "Grid.h"
 
-constexpr int GRID_WIDTH = 64;
-constexpr int GRID_HEIGHT = 64;
-constexpr int CELL_SIZE = 10;
+constexpr int GRID_WIDTH = 128;
+constexpr int GRID_HEIGHT = 128;
+constexpr int CELL_SIZE = 5;
 constexpr int WINDOW_WIDTH = GRID_WIDTH * CELL_SIZE;
 constexpr int WINDOW_HEIGHT = GRID_HEIGHT * CELL_SIZE;
 
-using Grid = std::vector<std::vector<bool>>;
 
 bool in_bounds(Vec2 v) {
   if (v.x < 0 || v.x >= GRID_WIDTH) {
@@ -28,13 +28,14 @@ bool in_bounds(Vec2 v) {
 // Randomly fill initial grid
 void initialize_grid(Grid& grid) {
   std::mt19937 rng(std::chrono::steady_clock::now().time_since_epoch().count());
-  std::uniform_int_distribution<> dist(0, 1);
+  std::bernoulli_distribution dist(0.27);
   for (int x = 0; x < GRID_WIDTH; ++x)
   for (int y = 0; y < GRID_HEIGHT; ++y)
-  grid[x][y] = dist(rng) == 1;
+  grid[x][y] = dist(rng) == 1 ? CellType::Food : CellType::Empty;
 }
 
 std::vector<Entity> spawn_entities(int width, int height, int count_per_team) {
+  const int INITIAL_ENERGY = 60;
   std::vector<Entity> entities;
   std::unordered_map<Vec2, bool> occupied;
 
@@ -55,13 +56,13 @@ std::vector<Entity> spawn_entities(int width, int height, int count_per_team) {
   // Team A - Red - Left half
   for (int i = 0; i < count_per_team; ++i) {
     Vec2 pos = unique_random_pos(0, width / 2 - 1);
-    entities.emplace_back(pos, sf::Color::Red, 10);
+    entities.emplace_back(pos, sf::Color::Red, INITIAL_ENERGY);
   }
 
   // Team B - Blue - Right half
   for (int i = 0; i < count_per_team; ++i) {
     Vec2 pos = unique_random_pos(width / 2, width - 1);
-    entities.emplace_back(pos, sf::Color::Blue, 10);
+    entities.emplace_back(pos, sf::Color::Blue, INITIAL_ENERGY);
   }
 
   return entities;
@@ -76,44 +77,9 @@ int count_neighbors(const Grid& grid, int x, int y) {
     int nx = x + dx;
     int ny = y + dy;
     if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT)
-    count += grid[nx][ny] ? 1 : 0;
+    count += grid[nx][ny] == CellType::Food ? 1 : 0;
   }
   return count;
-}
-
-// Wrapper for ruby decide_action function.
-VALUE call_decide_action(const std::vector<std::vector<bool>>& local_grid, int energy) {
-  VALUE rb_local = rb_ary_new();
-  for (const auto& row : local_grid) {
-    VALUE rb_row = rb_ary_new();
-    for (bool cell : row)
-    rb_ary_push(rb_row, cell ? Qtrue : Qfalse);
-    rb_ary_push(rb_local, rb_row);
-  }
-  
-  VALUE rb_energy = INT2NUM(energy);
-    // Pack args into an array
-    VALUE args = rb_ary_new();
-    rb_ary_push(args, rb_local);
-    rb_ary_push(args, rb_energy);
-
-    // Prepare a function to call safely
-    auto safe_call = [](VALUE arg) -> VALUE {
-        VALUE* argv = reinterpret_cast<VALUE*>(arg);
-        return rb_funcall(rb_cObject, rb_intern("decide_action"), 2, argv[0], argv[1]);
-    };
-
-    VALUE argv[2] = {rb_local, rb_energy};
-    int state = 0;
-    VALUE result = rb_protect(safe_call, reinterpret_cast<VALUE>(argv), &state);
-    if (state) {
-      VALUE err = rb_errinfo();
-      VALUE err_str = rb_funcall(err, rb_intern("to_s"), 0);
-      std::cerr << "Ruby error: " << StringValueCStr(err_str) << "\n";
-      rb_set_errinfo(Qnil);  // Clear it
-      return ID2SYM(rb_intern("stay"));
-  }
-  return result;
 }
 
 // Apply Game of Life rules
@@ -122,10 +88,10 @@ void update_grid(Grid& grid) {
   for (int x = 0; x < GRID_WIDTH; ++x) {
     for (int y = 0; y < GRID_HEIGHT; ++y) {
       int neighbors = count_neighbors(grid, x, y);
-      if (grid[x][y]) {
-        new_grid[x][y] = (neighbors == 2 || neighbors == 3);
+      if (grid[x][y] == CellType::Food) {
+        new_grid[x][y] = (neighbors == 2 || neighbors == 3) ? CellType::Food : CellType::Empty;
       } else {
-        new_grid[x][y] = (neighbors == 3);
+        new_grid[x][y] = (neighbors == 3) ? CellType::Food : CellType::Empty;
       }
     }
   }
@@ -136,6 +102,10 @@ void update_grid(Grid& grid) {
 void update_entities(std::vector<Entity>& entities, Grid& food_grid) {
   // What moves do entities want to make?
   std::map<Vec2, std::vector<Entity*>> movement_requests;
+  std::map<Vec2, const Entity*> entity_positions;
+  for (const auto& entity : entities) {
+    entity_positions[entity.pos] = &entity;
+  }
   for (auto& entity : entities) {
     if (entity.energy <= 0) {
       // Entity cannot move due to low energy.  Generate a
@@ -145,15 +115,21 @@ void update_entities(std::vector<Entity>& entities, Grid& food_grid) {
       continue;
     }
     // 5x5 local grid centered on entity
-    std::vector<std::vector<bool>> local(5, std::vector<bool>(5, false));
+    Grid local(5, std::vector<CellType>(5, CellType::Empty));
     for (int dx = -2; dx <= 2; ++dx) {
       for (int dy = -2; dy <= 2; ++dy) {
         int gx = entity.pos.x + dx;
         int gy = entity.pos.y + dy;
-        if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT)
-        local[dx + 2][dy + 2] = food_grid[gx][gy];
+        if (gx >= 0 && gx < GRID_WIDTH && gy >= 0 && gy < GRID_HEIGHT) {
+          local[dx + 2][dy + 2] = food_grid[gx][gy];
+        } else if (
+          entity_positions.count(Vec2{.x = gx, .y = gy})) {
+            local[dx + 2][dy + 2] = (
+              entity_positions[Vec2{.x = gx, .y = gy}]->color == entity.color
+             ) ? CellType::Teammate : CellType::Opponent; 
+          }
+        }
       }
-    }
 
     const auto movement_request = entity.request_move(local);
     if (!in_bounds(movement_request)) {
@@ -177,9 +153,9 @@ void update_entities(std::vector<Entity>& entities, Grid& food_grid) {
 void eat(std::vector<Entity>& entities, Grid& food_grid) {
   for (auto& entity : entities) {
     const auto& pos = entity.pos;
-    if (food_grid[pos.x][pos.y]) {
+    if (food_grid[pos.x][pos.y] == CellType::Food) {
       entity.energy += 5;  // TODO: tune this.
-      food_grid[pos.x][pos.y] = 0;
+      food_grid[pos.x][pos.y] = CellType::Empty;
     }
   }
 }
@@ -188,10 +164,10 @@ int main() {
   sf::RenderWindow window(sf::VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Food Grid - Game of Life");
   window.setFramerateLimit(60);
   
-  Grid food_grid(GRID_WIDTH, std::vector<bool>(GRID_HEIGHT, false));
+  Grid food_grid(GRID_WIDTH, std::vector<CellType>(GRID_HEIGHT, CellType::Empty));
   initialize_grid(food_grid);
   
-  std::vector<Entity> entities = spawn_entities(GRID_WIDTH, GRID_HEIGHT, 50);
+  std::vector<Entity> entities = spawn_entities(GRID_WIDTH, GRID_HEIGHT, 200);
 
   sf::RectangleShape cell(sf::Vector2f(CELL_SIZE - 1, CELL_SIZE - 1));
   cell.setFillColor(sf::Color::Green);
@@ -229,7 +205,7 @@ int main() {
     window.clear(sf::Color::Black);
     for (int x = 0; x < GRID_WIDTH; ++x) {
       for (int y = 0; y < GRID_HEIGHT; ++y) {
-        if (food_grid[x][y]) {
+        if (food_grid[x][y] == CellType::Food) {
           bool has_entity = false;
           for (const auto& e : entities)
           if (e.pos.x == x && e.pos.y == y)
