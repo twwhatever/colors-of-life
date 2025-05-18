@@ -179,7 +179,19 @@ int main() {
 
   rb_eval_string("$LOAD_PATH.unshift('./scripts')");
   int state = 0;
-  rb_load_protect(rb_str_new_cstr("ai.rb"), 0, &state);
+  rb_load_protect(rb_str_new_cstr("ai_red.rb"), 0, &state);
+  if (state) {
+      std::cerr << "Ruby script ai_red.rb failed to load (state = " << state << ")\n";
+      ruby_cleanup(0);
+      return 1;
+  }
+
+  rb_load_protect(rb_str_new_cstr("ai_blue.rb"), 0, &state);
+  if (state) {
+      std::cerr << "Ruby script ai_blue.rb failed to load (state = " << state << ")\n";
+      ruby_cleanup(0);
+      return 1;
+  }
   if (state) {
       std::cerr << "Ruby script failed to load (state = " << state << ")\n";
       ruby_cleanup(0);

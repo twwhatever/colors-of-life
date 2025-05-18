@@ -2,6 +2,12 @@
 #include <ruby.h>
 #include <iostream>
 
+static VALUE safe_call_wrapper(VALUE arg) {
+  VALUE* args = reinterpret_cast<VALUE*>(arg);
+  const char* method_name = (args[2] == Qtrue) ? "decide_action_red" : "decide_action_blue";
+  return rb_funcall(rb_cObject, rb_intern(method_name), 2, args[0], args[1]);
+}
+
 // Helper: Convert Ruby symbol (e.g., :north) to Vec2 delta
 static Vec2 direction_from_symbol(VALUE sym) {
   VALUE dir_str = rb_funcall(sym, rb_intern("to_s"), 0);
@@ -43,15 +49,10 @@ Vec2 Entity::request_move(const Grid& local_grid) {
   }
 
   VALUE rb_energy = INT2NUM(energy);
-  VALUE argv[2] = {rb_local, rb_energy};
-
-  auto safe_call = [](VALUE arg) -> VALUE {
-    VALUE* args = reinterpret_cast<VALUE*>(arg);
-    return rb_funcall(rb_cObject, rb_intern("decide_action"), 2, args[0], args[1]);
-  };
+  VALUE argv[3] = {rb_local, rb_energy, (color == sf::Color::Red) ? Qtrue : Qfalse};
 
   int state = 0;
-  VALUE result = rb_protect(safe_call, reinterpret_cast<VALUE>(argv), &state);
+  VALUE result = rb_protect(safe_call_wrapper, reinterpret_cast<VALUE>(argv), &state);
   rb_gc_unregister_address(&rb_local);
   if (state != 0) {
     VALUE err = rb_errinfo();
