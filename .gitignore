@@ -36,3 +36,4 @@ build/
 
 # CMake local user presets
 CMakeUserPresets.json
+.aider*
